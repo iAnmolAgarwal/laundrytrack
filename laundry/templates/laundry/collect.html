@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Collect{% endblock %}
+{% block measure %} is-narrow{% endblock %}
+{% block content %}
+<div class="narrow">
+  <a href="{% url 'slip_detail' slip.pk %}" class="back-link">&larr; {% if slip.slip_no %}Slip #{{ slip.slip_no }}{% else %}Slip {{ slip.pk }}{% endif %}</a>
+  <header class="head">
+    <h1>What came back</h1>
+  </header>
+
+  <form method="post" action="{% url 'collect' slip.pk %}" data-collect-form>
+    {% csrf_token %}
+    <ul class="checklist">
+      {% for item in items %}
+      <li class="check-row" data-check-row data-given="{{ item.quantity }}">
+        <div class="check-name">
+          <label for="returned_{{ item.id }}">{{ item.name }}</label>
+          <span class="sub">{% if item.colour %}{{ item.colour }} · {% endif %}gave {{ item.quantity }}</span>
+        </div>
+        <div class="stepper">
+          <button type="button" class="step-btn" data-step="-1" aria-label="One less {{ item.name }}">&minus;</button>
+          <input type="number" id="returned_{{ item.id }}" name="returned_{{ item.id }}" value="{% if item.returned_quantity is not None %}{{ item.returned_quantity }}{% else %}{{ item.quantity }}{% endif %}" min="0" inputmode="numeric" class="step-input" data-returned>
+          <button type="button" class="step-btn" data-step="1" aria-label="One more {{ item.name }}">+</button>
+        </div>
+      </li>
+      {% empty %}
+      <li class="check-row sub">No items on this slip</li>
+      {% endfor %}
+    </ul>
+
+    <div class="collect-foot">
+      <p class="summary" data-summary aria-live="polite">
+        <span><span class="label">Returned</span> <strong data-sum-returned>{% if slip.status == 'mismatch' %}{{ slip.total_returned }}{% else %}{{ slip.total_items }}{% endif %}</strong> of <strong data-sum-given>{{ slip.total_items }}</strong></span>
+        <span class="stamp stamp-bad" data-missing-wrap{% if slip.status != 'mismatch' %} hidden{% endif %}><span data-sum-missing>{{ slip.missing_count }}</span>&nbsp;missing</span>
+      </p>
+      <button type="submit" class="btn btn-primary btn-block">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

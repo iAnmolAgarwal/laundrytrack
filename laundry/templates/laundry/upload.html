@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Upload slip{% endblock %}
+{% block measure %} is-narrow{% endblock %}
+{% block content %}
+<div class="narrow">
+  <header class="head">
+    <h1>Upload slip</h1>
+  </header>
+
+  <div class="upload" data-upload-card>
+    {% if uploads_left <= 0 %}
+    <p class="note note-warn" role="status">No slip reads left today.</p>
+    {% endif %}
+    <form method="post" action="{% url 'upload' %}" enctype="multipart/form-data" novalidate data-upload-form{% if uploads_left <= 0 %} data-disabled{% endif %}>
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+      <input type="hidden" name="photo_key" data-photo-key>
+
+      <fieldset class="upload-fieldset"{% if uploads_left <= 0 %} disabled{% endif %}>
+        <label class="dropzone" data-dropzone for="id_image">
+          <input type="file" name="image" id="id_image" accept="image/*" required class="dropzone-input" data-file-input>
+          <span class="dropzone-empty" data-dropzone-empty>
+            <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+            <strong>Take or choose a photo</strong>
+          </span>
+          <span class="dropzone-preview" data-dropzone-preview hidden>
+            <img alt="Preview of the chosen slip photo" data-preview-img>
+            <span class="dropzone-meta">
+              <strong data-file-name></strong>
+              <span class="sub" data-file-size></span>
+              <span class="quiet-link">Change</span>
+            </span>
+          </span>
+        </label>
+        <p class="field-error" data-file-error role="alert" hidden></p>
+        {{ form.image.errors }}
+
+        <button type="submit" class="btn btn-primary btn-block" data-submit>Read slip</button>
+      </fieldset>
+      <p class="quota{% if uploads_left <= 0 %} is-empty{% endif %}"><span class="label">Reads today</span> {{ uploads_left }} of {{ daily_limit }} left</p>
+    </form>
+
+    <div class="loading" data-loading hidden aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <strong>Reading slip&hellip;</strong>
+      <span class="sub">About 15 seconds</span>
+    </div>
+  </div>
+</div>
+{% endblock %}

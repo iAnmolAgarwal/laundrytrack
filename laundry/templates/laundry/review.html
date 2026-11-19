@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Check slip{% endblock %}
+{% block content %}
+<header class="head">
+  <h1>Check the slip</h1>
+</header>
+
+<div class="split" data-split>
+  <aside class="split-media" data-photo-key="{{ photo_key }}">
+    <div class="photo-present" data-photo-present hidden>
+      <button type="button" class="photo-frame" data-photo-zoom aria-label="Enlarge slip photo">
+        <img alt="Photo of your laundry slip" data-photo-img>
+        <span class="photo-hint" aria-hidden="true">Zoom</span>
+      </button>
+    </div>
+  </aside>
+
+  <form method="post" action="{% url 'review' slip.pk %}" class="split-form" data-review-form data-email-domain="{{ email_domain }}">
+    {% csrf_token %}
+    <input type="hidden" name="photo_data" data-photo-data>
+    {% if extraction.blank %}
+    <p class="note note-warn">This slip looks blank. Fill it in or <a href="{% url 'upload' %}">try another photo</a>.</p>
+    {% elif extraction.ok %}
+    <p class="note">Filled from your photo. Check the counts.</p>
+    {% else %}
+    <p class="note note-warn">Could not read the photo. Fill in the slip.</p>
+    {% endif %}
+    {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+
+    <div class="slip-sheet">
+      <h2 class="slip-title">LAUNDRY SLIP</h2>
+
+      <div class="slip-lines">
+        <div class="slip-line">
+          <label class="slip-field slip-field-wide">
+            <span class="slip-label">Name</span>
+            {{ form.student_name }}
+          </label>
+          <label class="slip-field">
+            <span class="slip-label">Laundry No.</span>
+            {{ form.slip_no }}
+          </label>
+        </div>
+        {{ form.student_name.errors }}{{ form.slip_no.errors }}
+        <div class="slip-line">
+          <label class="slip-field slip-field-wide">
+            <span class="slip-label">Roll No.</span>
+            {{ form.enrollment_no }}
+          </label>
+          <label class="slip-field">
+            <span class="slip-label">Date</span>
+            <span class="slip-date" data-slip-date>{{ form.drop_date }}</span>
+          </label>
+        </div>
+        {{ form.enrollment_no.errors }}{{ form.drop_date.errors }}
+      </div>
+
+      <table class="slip-table">
+        <colgroup><col class="slip-col-name"><col class="slip-col-qty"><col class="slip-col-colour"></colgroup>
+        <thead>
+          <tr><th scope="col">PARTICULARS</th><th scope="col">QTY.</th><th scope="col">COLOUR</th></tr>
+        </thead>
+        <tbody data-item-rows>
+          {% for row in rows %}
+          {% if row.section == "dry_clean" %}{% ifchanged row.section %}
+          <tr class="slip-add-row" data-add-anchor>
+            <td colspan="3"><button type="button" class="slip-add" data-add-row>+ Add item</button></td>
+          </tr>
+          <tr class="slip-section"><th scope="rowgroup" colspan="3">(Dry Clean Only)</th></tr>
+          {% endifchanged %}{% endif %}
+          {% if row.custom %}
+          <tr class="slip-row slip-row-custom" data-item-row>
+            <td class="slip-name">
+              <div class="slip-custom">
+                <input type="text" name="item_name" value="{{ row.name }}" class="slip-cell-in" placeholder="Other item" aria-label="Item name">
+                <button type="button" class="slip-remove" data-remove-row aria-label="Remove item">&times;</button>
+              </div>
+            </td>
+            <td><input type="number" name="item_qty" min="0" inputmode="numeric" value="{{ row.quantity }}" class="slip-cell-in slip-qty" aria-label="Quantity"></td>
+            <td><textarea name="item_colour" rows="1" class="slip-cell-in slip-colour" aria-label="Colour">{{ row.colour }}</textarea></td>
+          </tr>
+          {% else %}
+          <tr class="slip-row" data-item-row>
+            <td class="slip-name"><input type="hidden" name="item_name" value="{{ row.name }}">{{ row.name }}</td>
+            <td><input type="number" name="item_qty" min="0" inputmode="numeric" value="{{ row.quantity }}" class="slip-cell-in slip-qty" aria-label="{{ row.name }} quantity"></td>
+            <td><textarea name="item_colour" rows="1" class="slip-cell-in slip-colour" aria-label="{{ row.name }} colour">{{ row.colour }}</textarea></td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="slip-total">
+            <th scope="row">TOTAL</th>
+            <td class="slip-total-qty" data-total aria-live="polite">0</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+      <template data-row-template>
+        <tr class="slip-row slip-row-custom" data-item-row>
+          <td class="slip-name">
+            <div class="slip-custom">
+              <input type="text" name="item_name" class="slip-cell-in" placeholder="Other item" aria-label="Item name">
+              <button type="button" class="slip-remove" data-remove-row aria-label="Remove item">&times;</button>
+            </div>
+          </td>
+          <td><input type="number" name="item_qty" min="0" inputmode="numeric" class="slip-cell-in slip-qty" aria-label="Quantity"></td>
+          <td><textarea name="item_colour" rows="1" class="slip-cell-in slip-colour" aria-label="Colour"></textarea></td>
+        </tr>
+      </template>
+
+      <p class="slip-note">Note : Please don't give under Germents, Socks &amp; Other small pcs.</p>
+    </div>
+
+    <section class="confirm" data-earliest="{{ earliest_pickup|date:'Y-m-d' }}" data-earliest-label="{{ earliest_pickup|date:'D j M' }}" aria-label="Reminder">
+      <div class="rows">
+        <div class="row row-field">
+          <label class="label" for="{{ form.pickup_date.id_for_label }}">Remind me on</label>
+          <div class="row-value">
+            {{ form.pickup_date }}
+            <span class="sub" id="pickup-hint">From {{ earliest_pickup|date:'D j M' }}</span>
+            {{ form.pickup_date.errors }}
+          </div>
+        </div>
+        <div class="row" aria-live="polite" data-email-line>
+          <span class="label">Email to</span>
+          <span class="row-value email-value">
+            <span data-email-set{% if not form.enrollment_no.value %} hidden{% endif %} data-email-addr>{{ form.enrollment_no.value|default:""|cut:" "|lower }}@{{ email_domain|lower }}</span>
+            <span class="sub" data-email-unset{% if form.enrollment_no.value %} hidden{% endif %}>Needs Roll No.</span>
+          </span>
+        </div>
+      </div>
+      <details class="notes"{% if form.notes.value or form.notes.errors %} open{% endif %}>
+        <summary class="quiet-link">Add a note</summary>
+        <label class="sr-only" for="{{ form.notes.id_for_label }}">Note</label>
+        {{ form.notes }}
+        {{ form.notes.errors }}
+      </details>
+      <button type="submit" class="btn btn-primary btn-block">Confirm</button>
+    </section>
+  </form>
+</div>
+
+<div class="lightbox" data-lightbox hidden>
+  <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close">&times;</button>
+  <img alt="Slip photo, enlarged" data-lightbox-img>
+</div>
+{% endblock %}

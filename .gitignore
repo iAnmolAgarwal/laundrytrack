@@ -1,0 +1,27 @@
+# secrets and local state
+.env
+.env.local
+.env*.local
+mail_relay.gs
+db.sqlite3
+*.sqlite3
+sent_emails/
+media/
+staticfiles/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# local only
+report/
+sample_slip.jpg
+.vercel/
+.DS_Store
+.env*
+!.env.example
+
+# design-loop working files
+gan-harness/
+docs/_tmp/

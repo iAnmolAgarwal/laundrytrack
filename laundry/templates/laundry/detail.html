@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Slip {% if slip.slip_no %}#{{ slip.slip_no }}{% else %}{{ slip.pk }}{% endif %}{% endblock %}
+{% block content %}
+<a href="{% url 'dashboard' %}" class="back-link">&larr; Slips</a>
+<header class="head">
+  <h1>{% if slip.slip_no %}Slip #{{ slip.slip_no }}{% else %}Slip {{ slip.pk }}{% endif %}</h1>
+  {% if slip.status == 'mismatch' %}<span class="stamp stamp-bad">{{ slip.missing_count }} missing</span>
+  {% elif slip.status == 'collected' %}<span class="stamp stamp-quiet">Collected</span>
+  {% elif slip.is_overdue %}<span class="stamp stamp-bad">Overdue</span>
+  {% else %}<span class="stamp">At laundry</span>{% endif %}
+</header>
+
+<div class="detail" data-slip-confirmed>
+  <section class="detail-summary" aria-label="Summary">
+    <dl class="rows">
+      {% if slip.status == 'at_laundry' %}
+      <div class="row"><dt class="label">Collect on</dt><dd>{{ slip.pickup_date|date:"D j M" }}{% if slip.days_until_pickup == 0 %} <span class="sub">· today</span>{% elif slip.days_until_pickup == 1 %} <span class="sub">· tomorrow</span>{% endif %}<span class="sub row-sub">{{ laundry_window }}</span></dd></div>
+      {% elif slip.collected_at %}
+      <div class="row"><dt class="label">Collected on</dt><dd>{{ slip.collected_at|date:"D j M, g:i A" }}</dd></div>
+      {% endif %}
+      <div class="row"><dt class="label">Email</dt><dd class="stamps">
+        {% if slip.email_sent %}<span class="stamp stamp-good">Confirmation sent</span>{% else %}<span class="stamp">Not sent</span>{% endif %}
+        {% if slip.reminder_sent %}<span class="stamp stamp-good">Reminder sent</span>{% endif %}
+      </dd></div>
+      {% if slip.notes %}<div class="row"><dt class="label">Notes</dt><dd class="prewrap">{{ slip.notes }}</dd></div>{% endif %}
+    </dl>
+
+    {% if slip.status == 'at_laundry' %}
+    <a href="{% url 'collect' slip.pk %}" class="btn btn-primary btn-block">Collect</a>
+    {% endif %}
+
+    <div class="quiet-actions">
+      {% if slip.status == 'at_laundry' %}
+      <form method="post" action="{% url 'send_reminder' slip.pk %}" class="inline-form">
+        {% csrf_token %}
+        <button type="submit" class="text-btn">Email reminder now</button>
+      </form>
+      <form method="post" action="{% url 'resend_email' slip.pk %}" class="inline-form">
+        {% csrf_token %}
+        <button type="submit" class="text-btn">Resend confirmation</button>
+      </form>
+      {% elif slip.status == 'mismatch' %}
+      <a href="{% url 'collect' slip.pk %}" class="text-btn">Edit count</a>
+      {% endif %}
+      <form method="post" action="{% url 'slip_delete' slip.pk %}" class="inline-form" data-confirm="Delete this slip? This cannot be undone.">
+        {% csrf_token %}
+        <button type="submit" class="text-btn text-btn-danger">Delete</button>
+      </form>
+    </div>
+  </section>
+
+  <div class="detail-sheet">
+    <div class="slip-sheet slip-readonly">
+      <h2 class="slip-title">LAUNDRY SLIP</h2>
+      <div class="slip-lines">
+        <div class="slip-line">
+          <div class="slip-field slip-field-wide"><span class="slip-label">Name</span><span class="slip-value">{{ slip.student_name }}</span></div>
+          <div class="slip-field"><span class="slip-label">Laundry No.</span><span class="slip-value">{{ slip.slip_no }}</span></div>
+        </div>
+        <div class="slip-line">
+          <div class="slip-field slip-field-wide"><span class="slip-label">Roll No.</span><span class="slip-value">{{ slip.enrollment_no }}</span></div>
+          <div class="slip-field"><span class="slip-label">Date</span><span class="slip-value">{{ slip.drop_date|date:"d/m/Y" }}</span></div>
+        </div>
+      </div>
+      {% if slip.status == 'mismatch' %}
+      <table class="slip-table slip-table-5">
+        <colgroup><col class="slip5-name"><col class="slip5-qty"><col class="slip5-colour"><col class="slip5-ret"><col class="slip5-miss"></colgroup>
+        <thead>
+          <tr><th scope="col">PARTICULARS</th><th scope="col">QTY.</th><th scope="col"><abbr title="Colour">COL.</abbr></th><th scope="col"><abbr title="Returned">RET.</abbr></th><th scope="col"><abbr title="Missing">MISS.</abbr></th></tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          <tr class="slip-row{% if item.missing > 0 %} slip-row-bad{% endif %}">
+            <td class="slip-name">{{ item.name }}</td>
+            <td class="slip-num">{{ item.quantity }}</td>
+            <td class="slip-ink">{{ item.colour }}</td>
+            <td class="slip-num">{% if item.returned_quantity is not None %}{{ item.returned_quantity }}{% else %}&ndash;{% endif %}</td>
+            <td class="slip-num">{% if item.missing > 0 %}<strong>{{ item.missing }}</strong>{% endif %}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="slip-name">No items</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="slip-total">
+            <th scope="row">TOTAL</th>
+            <td class="slip-total-qty">{{ slip.total_items }}</td>
+            <td></td>
+            <td class="slip-total-qty">{{ slip.total_returned }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+      {% else %}
+      <table class="slip-table">
+        <colgroup><col class="slip-col-name"><col class="slip-col-qty"><col class="slip-col-colour"></colgroup>
+        <thead>
+          <tr><th scope="col">PARTICULARS</th><th scope="col">QTY.</th><th scope="col">COLOUR</th></tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          <tr class="slip-row">
+            <td class="slip-name">{{ item.name }}</td>
+            <td class="slip-num">{{ item.quantity }}</td>
+            <td class="slip-ink">{{ item.colour }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3" class="slip-name">No items</td></tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr class="slip-total">
+            <th scope="row">TOTAL</th>
+            <td class="slip-total-qty">{{ slip.total_items }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+      {% endif %}
+      <p class="slip-note">Note : Please don't give under Germents, Socks &amp; Other small pcs.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

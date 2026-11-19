@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block measure %} is-narrow{% endblock %}
+{% block content %}
+<div class="narrow">
+  <header class="head">
+    <h1>Settings</h1>
+  </header>
+
+  <form method="post" action="{% url 'settings' %}" class="form">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+
+    <fieldset class="fieldset">
+      <legend class="label">Laundry days</legend>
+      <div class="checks">
+        {% for cb in form.laundry_days %}<label class="check">{{ cb.tag }}<span class="check-mark" aria-hidden="true">&#10003;</span><span aria-hidden="true">{{ cb.choice_label|slice:":3" }}</span><span class="sr-only">{{ cb.choice_label }}</span></label>{% endfor %}
+      </div>
+      {{ form.laundry_days.errors }}
+    </fieldset>
+
+    <div class="field">
+      <label for="{{ form.first_name.id_for_label }}">Name</label>
+      {{ form.first_name }}
+      {{ form.first_name.errors }}
+    </div>
+    <div class="field">
+      <label for="{{ form.enrollment_no.id_for_label }}">Roll No.</label>
+      {{ form.enrollment_no }}
+      {{ form.enrollment_no.errors }}
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="{{ form.hostel.id_for_label }}">Hostel</label>
+        {{ form.hostel }}
+        {{ form.hostel.errors }}
+      </div>
+      <div class="field">
+        <label for="{{ form.room_no.id_for_label }}">Room</label>
+        {{ form.room_no }}
+        {{ form.room_no.errors }}
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-block">Save</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Slips{% endblock %}
+{% block content %}
+{% with next=stats.next_pickup_slip %}
+<header class="head">
+  <h1>Slips</h1>
+</header>
+
+<section class="now{% if next.is_overdue %} is-overdue{% endif %}" aria-label="At the laundry">
+  {% if next %}
+  <div class="now-main">
+    <dl class="now-facts">
+      <div>
+        <dt class="label">At laundry</dt>
+        <dd class="now-value">{{ next.total_items }} clothes</dd>
+        <dd class="sub">Slip {% if next.slip_no %}#{{ next.slip_no }}{% else %}{{ next.pk }}{% endif %}{% if stats.active_count > 1 %} · {{ stats.active_count|add:"-1" }} more slip{{ stats.active_count|add:"-1"|pluralize }}{% endif %}</dd>
+      </div>
+      <div>
+        <dt class="label">Collect on</dt>
+        <dd class="now-value">{{ next.pickup_date|date:"D j M" }}</dd>
+        <dd>{% if next.is_overdue %}<span class="stamp stamp-bad">Overdue</span>{% elif next.pickup_date == today %}<span class="stamp stamp-accent">Today</span>{% else %}<span class="sub">{{ laundry_window }}</span>{% endif %}</dd>
+      </div>
+    </dl>
+    <div class="now-actions">
+      <a href="{% url 'collect' next.pk %}" class="btn btn-primary">Collect</a>
+      <a href="{% url 'slip_detail' next.pk %}" class="quiet-link">View slip</a>
+    </div>
+  </div>
+  {% else %}
+  <div class="now-main">
+    <dl class="now-facts">
+      <div>
+        <dt class="label">At laundry</dt>
+        <dd class="now-value now-none">Nothing</dd>
+      </div>
+    </dl>
+    <div class="now-actions">
+      <a href="{% url 'upload' %}" class="btn btn-primary">Upload slip</a>
+    </div>
+  </div>
+  {% endif %}
+  <p class="now-days"><span class="label">Laundry days</span> <span>{{ my_laundry_days }}</span> <a href="{% url 'settings' %}" class="quiet-link">Change</a></p>
+</section>
+{% endwith %}
+
+{% if slips %}
+<section class="ledger-wrap" aria-label="Slips">
+  <div class="ledger-head" aria-hidden="true"><span>Slip</span><span>Dropped</span><span>Qty.</span><span>Status</span></div>
+  <ol class="ledger">
+    {% for slip in slips %}
+    <li>
+      <a href="{% url 'slip_detail' slip.pk %}" class="ledger-row">
+        <span class="ledger-no">{% if slip.slip_no %}#{{ slip.slip_no }}{% else %}Slip{% endif %}</span>
+        <span class="ledger-date"><span class="sr-only">Dropped </span>{{ slip.drop_date|date:"j M" }}</span>
+        <span class="ledger-count">{{ slip.total_items }}<span class="sr-only"> clothes</span></span>
+        <span class="ledger-status">
+          {% if slip.status == 'mismatch' %}<span class="stamp stamp-bad">{{ slip.missing_count }} missing</span>
+          {% elif slip.is_overdue %}<span class="stamp stamp-bad">Overdue</span>
+          {% elif slip.status == 'at_laundry' %}<span class="stamp">At laundry</span>
+          {% else %}<span class="stamp stamp-quiet">Collected</span>{% endif %}
+        </span>
+      </a>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,48 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f5f1">
+  <title>{% block title %}LaundryTrack{% endblock %} · LaundryTrack</title>
+  <link rel="stylesheet" href="{% static 'laundry/app.css' %}">
+  <script src="{% static 'laundry/app.js' %}" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  {% with here=request.resolver_match.url_name %}
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="{% if user.is_authenticated %}{% url 'dashboard' %}{% else %}{% url 'login' %}{% endif %}"{% if here == 'dashboard' %} aria-current="page"{% endif %}>Laundry<span>Track</span></a>
+      {% if user.is_authenticated %}
+      <nav class="nav" aria-label="Main">
+        <a href="{% url 'upload' %}" class="nav-link"{% if here == 'upload' %} aria-current="page"{% endif %}>Upload</a>
+        <a href="{% url 'settings' %}" class="nav-link"{% if here == 'settings' %} aria-current="page"{% endif %}>Settings</a>
+        <form method="post" action="{% url 'logout' %}" class="inline-form">
+          {% csrf_token %}
+          <button type="submit" class="nav-link">Log out</button>
+        </form>
+      </nav>
+      {% endif %}
+    </div>
+  </header>
+  {% endwith %}
+
+  <main id="main" class="wrap main{% block measure %}{% endblock %}">
+    {% if messages %}
+    <div class="messages" role="status">
+      {% for message in messages %}
+      <div class="flash flash-{{ message.tags|default:'info' }}" data-dismissible>
+        <span class="flash-text">{{ message }}</span>
+        <button type="button" class="flash-close" aria-label="Dismiss" data-dismiss>&times;</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

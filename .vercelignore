@@ -1,0 +1,13 @@
+.venv
+.env
+.env.local
+db.sqlite3
+media
+sent_emails
+staticfiles
+report
+docs
+sample_slip.jpg
+mail_relay.gs
+README.md
+gan-harness
