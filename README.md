@@ -81,7 +81,7 @@ The page also shows where the email will go: the roll number on the slip at `@ma
 ### 4. The confirmation email
 
 <p align="center">
-  <img src="docs/images/email.png" width="100%" alt="The confirmation email, headed '10 clothes at the laundry': Hi Anmol, you handed in 10 clothes on Tuesday, 17 November 2026, your reminder is set for Friday, 20 November 2026, the counter is open 4:00 PM to 6:30 PM; laundry no 214, roll no 2401030294, given Tue 17 Nov, collect Fri 20 Nov; a table of particulars, quantity and colour with a total of 10; an Add pickup reminder to Google Calendar button, a note about the attached laundry-pickup.ics, a View slip button, and a line saying the photo of the paper slip is attached">
+  <img src="docs/images/email.png" width="100%" alt="The confirmation email, in the same style as the app: the LaundryTrack wordmark, the heading '10 clothes at the laundry' with an AT LAUNDRY stamp, rows for Laundry no. 214, Roll no. 2401030294, Given Tue 17 Nov and Collect on Fri 20 Nov, 4:00 PM to 6:30 PM, then the items ruled like the paper slip (particulars, quantity and colour, total 10), an Add to Google Calendar button, a View slip link, and a note that the calendar file and the photo of the slip are attached">
 </p>
 <p align="center"><sub>The email as written by the local run. Attached to it: <code>laundry-pickup.ics</code> and <code>laundry-slip-214.jpg</code>, the slip photo.</sub></p>
 

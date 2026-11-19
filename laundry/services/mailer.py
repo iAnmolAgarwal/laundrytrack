@@ -1,6 +1,9 @@
 """Emails for LaundryTrack. Every public function returns (ok, message) and never raises.
 
 HTML is built in Python with inline styles + tables only (Gmail strips <style>).
+The look follows the web app: paper background, text wordmark, small uppercase
+labels, status as a bordered "stamp", the items laid out like the paper slip,
+and one ink-blue button.
 """
 from __future__ import annotations
 
@@ -13,7 +16,7 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 
 BRAND = "LaundryTrack"
-ACCENT = "#0b7a75"
+ACCENT = "#1d3fa6"
 TZ_NAME = "Asia/Kolkata"
 
 
@@ -144,67 +147,112 @@ def build_ics(slip):
 
 
 # ------------------------------------------------------------------ HTML pieces
+# Colours and sizes mirror laundry/static/laundry/app.css.
 
-def _button(href, label, color=ACCENT):
-    return (f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0;">'
-            f'<tr><td style="border-radius:8px;background:{color};">'
-            f'<a href="{escape(href)}" style="display:inline-block;padding:12px 20px;font-family:Arial,Helvetica,sans-serif;'
-            f'font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:8px;">{escape(label)}</a>'
+PAPER, SURFACE, TEXT, TEXT_2, MUTED, LINE = "#f6f5f1", "#ffffff", "#1b1c1e", "#4f5256", "#676a6e", "#e1dfd8"
+GOOD, GOOD_SOFT, BAD, BAD_SOFT, ACCENT_SOFT = "#1d6b37", "#e8f3eb", "#b42318", "#fcedeb", "#eaeef9"
+FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif"
+LABEL = (f"font-family:{FONT};font-size:11px;font-weight:700;letter-spacing:.08em;"
+         f"text-transform:uppercase;color:{MUTED};")
+STAMPS = {"good": (GOOD, GOOD_SOFT), "bad": (BAD, BAD_SOFT), "accent": (ACCENT, ACCENT_SOFT), "plain": (TEXT_2, SURFACE)}
+
+
+def _stamp(text, kind="plain"):
+    color, background = STAMPS.get(kind, STAMPS["plain"])
+    return (f'<span style="display:inline-block;padding:2px 8px;border:1px solid {color};border-radius:4px;'
+            f'background:{background};color:{color};font-family:{FONT};font-size:11px;font-weight:700;'
+            f'letter-spacing:.06em;text-transform:uppercase;line-height:1.6;white-space:nowrap;">{escape(text)}</span>')
+
+
+def _button(href, label):
+    return (f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0 0;">'
+            f'<tr><td style="border-radius:4px;background:{ACCENT};">'
+            f'<a href="{escape(href)}" style="display:inline-block;padding:13px 22px;font-family:{FONT};'
+            f'font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:4px;">{escape(label)}</a>'
             f'</td></tr></table>')
 
 
-def _table(headers, rows, footer=None):
+def _link(href, label):
+    return (f'<p style="margin:14px 0 0;font-family:{FONT};font-size:14px;">'
+            f'<a href="{escape(href)}" style="color:{ACCENT};font-weight:600;text-decoration:none;">{escape(label)}</a></p>')
+
+
+def _rows(pairs):
+    """Label and value rows, like the summary on the slip page."""
+    out = ""
+    for label, value in pairs:
+        if value in (None, ""):
+            continue
+        out += (f'<tr><td style="padding:11px 16px 11px 0;border-top:1px solid {LINE};width:118px;'
+                f'vertical-align:top;{LABEL}">{escape(label)}</td>'
+                f'<td style="padding:9px 0;border-top:1px solid {LINE};font-family:{FONT};font-size:15px;'
+                f'color:{TEXT};vertical-align:top;">{value}</td></tr>')
+    return (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+            f'style="border-collapse:collapse;border-bottom:1px solid {LINE};">{out}</table>')
+
+
+def _slip_table(headers, rows, footer=None):
+    """The items, ruled like the paper slip. A row may be (cells, True) to mark it as short."""
+    cell = f"border:1px solid {TEXT};font-family:Arial,Helvetica,sans-serif;"
     th = "".join(
-        f'<th align="{"left" if i == 0 else "right"}" style="padding:10px 12px;font-size:12px;text-transform:uppercase;'
-        f'letter-spacing:.5px;color:#64748b;border-bottom:2px solid #e2e8f0;">{escape(h)}</th>'
-        for i, h in enumerate(headers))
+        f'<th align="center" style="{cell}padding:8px 6px;font-size:12px;font-weight:400;'
+        f'letter-spacing:.02em;color:{TEXT};">{escape(str(h))}</th>' for h in headers)
     body = ""
-    for r in rows:
-        cells, style = r if isinstance(r, tuple) else (r, "")
-        body += "<tr>" + "".join(
-            f'<td align="{"left" if i == 0 else "right"}" style="padding:10px 12px;font-size:15px;color:#0f172a;'
-            f'border-bottom:1px solid #f1f5f9;{style}">{escape(str(c))}</td>' for i, c in enumerate(cells)) + "</tr>"
+    for row in rows:
+        cells, short = row if isinstance(row, tuple) else (row, False)
+        ink = BAD if short else ACCENT
+        background = f"background:{BAD_SOFT};" if short else ""
+        tds = ""
+        for index, value in enumerate(cells):
+            if index == 0:
+                tds += (f'<td align="left" style="{cell}{background}padding:9px 10px;font-size:15px;'
+                        f'color:{BAD if short else TEXT};">{escape(str(value))}</td>')
+            else:
+                # Counts are centred like the QTY. column; written text (colours) reads from the left.
+                is_count = str(value).strip().isdigit() or str(value).strip() in ("", "-")
+                tds += (f'<td align="{"center" if is_count else "left"}" style="{cell}{background}'
+                        f'padding:9px {"6px" if is_count else "10px"};font-size:15px;'
+                        f'font-weight:600;color:{ink};">{escape(str(value))}</td>')
+        body += f"<tr>{tds}</tr>"
     foot = ""
     if footer:
-        foot = "<tr>" + "".join(
-            f'<td align="{"left" if i == 0 else "right"}" style="padding:12px;font-size:15px;font-weight:bold;'
-            f'color:#0f172a;border-top:2px solid #e2e8f0;">{escape(str(c))}</td>' for i, c in enumerate(footer)) + "</tr>"
+        tds = ""
+        for index, value in enumerate(footer):
+            if index == 0:
+                tds += (f'<td align="right" style="{cell}padding:9px 10px;font-size:14px;color:{TEXT};">'
+                        f'{escape(str(value))}</td>')
+            else:
+                tds += (f'<td align="center" style="{cell}padding:9px 6px;font-size:15px;font-weight:700;'
+                        f'color:{ACCENT};">{escape(str(value))}</td>')
+        foot = f"<tr>{tds}</tr>"
     return (f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
-            f'style="border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;margin:12px 0;">'
+            f'style="border-collapse:collapse;border:2px solid {TEXT};margin:18px 0 0;background:{SURFACE};">'
             f'<tr>{th}</tr>{body}{foot}</table>')
 
 
-def _facts(pairs):
-    rows = "".join(
-        f'<tr><td style="padding:4px 0;font-size:14px;color:#64748b;width:110px;">{escape(k)}</td>'
-        f'<td style="padding:4px 0;font-size:14px;color:#0f172a;font-weight:bold;">{escape(str(v))}</td></tr>'
-        for k, v in pairs if v not in (None, ""))
-    return (f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
-            f'style="font-family:Arial,Helvetica,sans-serif;margin:8px 0 4px;">{rows}</table>')
+def _note(text):
+    return f'<p style="margin:16px 0 0;font-family:{FONT};font-size:13px;line-height:1.5;color:{MUTED};">{text}</p>'
 
 
-def _wrap(heading, inner_html, banner_color=ACCENT, preheader=""):
+def _wrap(heading, inner_html, stamp="", preheader=""):
     return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f1f5f9;">
+<body style="margin:0;padding:0;background:{PAPER};">
 <div style="display:none;max-height:0;overflow:hidden;">{escape(preheader)}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;">
-<tr><td align="center" style="padding:16px 8px;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#ffffff;border-radius:12px;overflow:hidden;">
-<tr><td style="background:{banner_color};padding:18px 20px;font-family:Arial,Helvetica,sans-serif;color:#ffffff;">
-<div style="font-size:13px;opacity:.85;letter-spacing:.5px;">{BRAND}</div>
-<div style="font-size:20px;font-weight:bold;margin-top:4px;line-height:1.3;">{escape(heading)}</div>
-</td></tr>
-<tr><td style="padding:20px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#0f172a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{PAPER};">
+<tr><td align="center" style="padding:24px 12px 32px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+<tr><td style="padding:0 4px 14px;font-family:{FONT};font-size:17px;color:{TEXT};"><span style="font-weight:800;">Laundry</span>Track</td></tr>
+<tr><td style="background:{SURFACE};border:1px solid {LINE};border-radius:4px;padding:24px 22px 26px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+<td style="font-family:{FONT};font-size:22px;font-weight:700;line-height:1.25;color:{TEXT};padding:0 0 16px;">{escape(heading)}</td>
+<td align="right" style="padding:0 0 16px;vertical-align:top;">{stamp}</td>
+</tr></table>
 {inner_html}
 </td></tr>
-<tr><td style="padding:14px 20px;background:#f8fafc;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#94a3b8;">
-Sent by {BRAND} so you can prove what you handed in. Keep this email until your clothes are back.
+<tr><td style="padding:14px 4px 0;font-family:{FONT};font-size:12px;line-height:1.5;color:{MUTED};">
+<a href="{_site_url()}" style="color:{MUTED};text-decoration:none;">{BRAND}</a> · a record of your laundry slip
 </td></tr>
 </table></td></tr></table></body></html>"""
-
-
-def _p(text):
-    return f'<p style="margin:0 0 12px;">{text}</p>'
 
 
 def _send(slip, subject, text, html, attachments=()):
@@ -227,6 +275,10 @@ def _mark(slip, field):
     slip.save(update_fields=[field])
 
 
+def _slip_facts(slip):
+    return [("Laundry no.", escape(slip.slip_no or "-")), ("Roll no.", escape(getattr(slip, "enrollment_no", "") or "-"))]
+
+
 # ------------------------------------------------------------------ public API
 
 def send_drop_confirmation(slip, photo=None):
@@ -234,36 +286,35 @@ def send_drop_confirmation(slip, photo=None):
     try:
         items = _items(slip)
         n = slip.total_items
-        pickup_time = _hours_label()
+        hours = _hours_label()
         subject = (f"Laundry submitted: {_plural(n)} on {_day(slip.drop_date)}, "
                    f"pick up {_day(slip.pickup_date)}")
         url, cal = _slip_url(slip), gcal_link(slip)
         name = _greeting_name(slip)
 
         text = (f"Hi {name},\n\nYou submitted {_plural(n)} to the laundry on {_long_day(slip.drop_date)}.\n"
-                f"Reminder set for {_long_day(slip.pickup_date)}. The counter is open {pickup_time}.\n\n"
+                f"Reminder set for {_long_day(slip.pickup_date)}. The counter is open {hours}.\n\n"
                 f"{_items_text(items)}\nTotal: {n}\n\n"
                 f"Laundry no: {slip.slip_no or '-'}\nRoll no: {getattr(slip, 'enrollment_no', '') or '-'}\n\n"
                 f"View slip: {url}\nAdd to Google Calendar: {cal}\n"
                 f"A calendar file (laundry-pickup.ics) is attached.\n"
                 + ("The photo of your slip is attached too. Keep this email as proof of what you handed in.\n" if photo else ""))
+        attached = "Attached: calendar file" + (" and the photo of your slip." if photo else ".")
         inner = (
-            _p(f"Hi {escape(name)},")
-            + _p(f"You handed in <b>{_plural(n)}</b> on <b>{escape(_long_day(slip.drop_date))}</b>. "
-                 f"Your reminder is set for <b>{escape(_long_day(slip.pickup_date))}</b>; "
-                 f"the counter is open {escape(pickup_time)}.")
-            + _facts([("Laundry no", slip.slip_no or "-"), ("Roll no", getattr(slip, "enrollment_no", "") or "-"),
-                      ("Given", _day(slip.drop_date)), ("Collect", f"{_day(slip.pickup_date)}, {pickup_time}")])
-            + _table(["Particulars", "Qty", "Colour"], [[i.name, i.quantity, getattr(i, "colour", "") or ""] for i in items], footer=["Total", n, ""])
-            + _button(cal, "Add pickup reminder to Google Calendar")
-            + _p('<span style="font-size:13px;color:#64748b;">Using Apple/Outlook calendar? '
-                 'Open the attached <b>laundry-pickup.ics</b>.</span>')
-            + _button(url, "View slip", color="#0f172a")
-            + (_p('<span style="font-size:13px;color:#64748b;">The photo of your paper slip is attached. '
-                  'Keep this email as proof of what you handed in.</span>') if photo else "")
+            _rows(_slip_facts(slip) + [
+                ("Given", escape(_day(slip.drop_date))),
+                ("Collect on", f"{escape(_day(slip.pickup_date))}"
+                               f'<br><span style="font-size:13px;color:{MUTED};">{escape(hours)}</span>'),
+            ])
+            + _slip_table(["PARTICULARS", "QTY.", "COLOUR"],
+                          [[i.name, i.quantity, getattr(i, "colour", "") or ""] for i in items],
+                          footer=["TOTAL", n, ""])
+            + _button(cal, "Add to Google Calendar")
+            + _link(url, "View slip")
+            + _note(attached + " Keep this email as proof of what you handed in.")
         )
-        html = _wrap(f"{_plural(n).capitalize()} at the laundry", inner,
-                     preheader=f"Collect from {_day(slip.pickup_date)}")
+        html = _wrap(f"{_plural(n).capitalize()} at the laundry", inner, stamp=_stamp("At laundry"),
+                     preheader=f"Collect from {_day(slip.pickup_date)}, {hours}")
         attachments = [("laundry-pickup.ics", build_ics(slip), "text/calendar; method=PUBLISH; charset=utf-8")]
         if photo:
             attachments.append((f"laundry-slip-{slip.slip_no or slip.pk}.jpg", photo, "image/jpeg"))
@@ -288,15 +339,18 @@ def send_pickup_reminder(slip):
                 + "\n".join(f"[ ] {i.name} x {i.quantity}" for i in items)
                 + f"\nTotal: {n}\n\nSlip no: {slip.slip_no or '-'}\nTick them off here: {url}\n")
         inner = (
-            _p(f"Hi {escape(name)},")
-            + _p(f"This is the reminder you set for the laundry you gave on <b>{escape(_long_day(slip.drop_date))}</b>. "
-                 f"The counter is open <b>{escape(hours)}</b> today. Count these before you leave:")
-            + _table(["Item", "Qty", "Got it"], [[i.name, i.quantity, "\u2610"] for i in items],
-                     footer=["Total", n, ""])
-            + _facts([("Laundry no", slip.slip_no or "-"), ("Roll no", getattr(slip, "enrollment_no", "") or "-")])
-            + _button(url, "Tick off returned clothes")
+            _rows(_slip_facts(slip) + [
+                ("Given", escape(_day(slip.drop_date))),
+                ("Counter open", escape(hours)),
+            ])
+            + _slip_table(["PARTICULARS", "QTY.", "COLOUR"],
+                          [[i.name, i.quantity, getattr(i, "colour", "") or ""] for i in items],
+                          footer=["TOTAL", n, ""])
+            + _button(url, "Count what came back")
+            + _note("Count each item at the counter before you leave.")
         )
-        html = _wrap(f"Pick up today: {_plural(n)}", inner, preheader="Count them at the counter")
+        html = _wrap(f"Collect {_plural(n)} today", inner, stamp=_stamp("Collect today", "accent"),
+                     preheader=f"Counter open {hours}")
         ok, message = _send(slip, subject, text, html)
         if ok:
             _mark(slip, "reminder_sent")
@@ -311,14 +365,13 @@ def send_collection_summary(slip):
         n, back, missing = slip.total_items, slip.total_returned, slip.missing_count
         url = _slip_url(slip)
         name = _greeting_name(slip)
+        facts = _slip_facts(slip) + [("Given", escape(_day(slip.drop_date)))]
         if missing > 0:
             subject = f"Laundry mismatch: {missing} item{'s' if missing != 1 else ''} missing"
-            heading = f"{missing} item{'s' if missing != 1 else ''} missing"
             rows = []
             for i in items:
                 ret = i.returned_quantity if i.returned_quantity is not None else "-"
-                style = "color:#b91c1c;font-weight:bold;background:#fef2f2;" if i.missing else ""
-                rows.append(([i.name, i.quantity, ret, i.missing or ""], style))
+                rows.append(([i.name, i.quantity, ret, i.missing or ""], bool(i.missing)))
             text = (f"Hi {name},\n\nYou gave {n} and got back {back}. {missing} missing.\n\n"
                     + "\n".join(f"- {i.name}: given {i.quantity}, returned "
                                 f"{i.returned_quantity if i.returned_quantity is not None else '-'}, missing {i.missing}"
@@ -326,29 +379,25 @@ def send_collection_summary(slip):
                     + f"\n\nSlip no: {slip.slip_no or '-'}, given {_long_day(slip.drop_date)}, "
                       f"due {_long_day(slip.pickup_date)}.\nShow this email to the laundry staff. Slip: {url}\n")
             inner = (
-                _p(f"Hi {escape(name)},")
-                + _p(f"You handed in <b>{n}</b> and got back <b>{back}</b>. "
-                     f'<span style="color:#b91c1c;font-weight:bold;">{missing} missing.</span> '
-                     f"Show this email to the laundry staff as proof.")
-                + _facts([("Laundry no", slip.slip_no or "-"), ("Roll no", getattr(slip, "enrollment_no", "") or "-"),
-                          ("Given", _long_day(slip.drop_date)), ("Due", _long_day(slip.pickup_date))])
-                + _table(["Item", "Given", "Returned", "Missing"], rows, footer=["Total", n, back, missing])
+                _rows(facts + [("Returned", f"{back} of {n}")])
+                + _slip_table(["PARTICULARS", "QTY.", "RET.", "MISS."], rows, footer=["TOTAL", n, back, missing])
                 + _button(url, "Open slip")
+                + _note("Show this email and the slip photo from your confirmation email at the laundry counter.")
             )
-            html = _wrap(heading, inner, banner_color="#b91c1c", preheader=f"Given {n}, returned {back}")
+            html = _wrap(f"Given {n}, returned {back}", inner,
+                         stamp=_stamp(f"{missing} missing", "bad"), preheader=f"{missing} missing")
         else:
             subject = f"All {_plural(n)} collected"
             text = (f"Hi {name},\n\nAll {_plural(n)} from {_long_day(slip.drop_date)} are back.\n\n"
                     f"{_items_text(items)}\nTotal: {n}\n\nSlip: {url}\n")
             inner = (
-                _p(f"Hi {escape(name)},")
-                + _p(f"All <b>{_plural(n)}</b> from {escape(_long_day(slip.drop_date))} are back. Nothing missing.")
-                + _table(["Item", "Given", "Returned"],
-                         [[i.name, i.quantity, i.returned_quantity if i.returned_quantity is not None else i.quantity]
-                          for i in items], footer=["Total", n, back or n])
-                + _button(url, "View slip", color="#0f172a")
+                _rows(facts)
+                + _slip_table(["PARTICULARS", "QTY.", "RET."],
+                              [[i.name, i.quantity, i.returned_quantity if i.returned_quantity is not None else i.quantity]
+                               for i in items], footer=["TOTAL", n, back or n])
+                + _link(url, "View slip")
             )
-            html = _wrap(f"All {_plural(n)} collected", inner, banner_color="#15803d")
+            html = _wrap(f"All {_plural(n)} collected", inner, stamp=_stamp("Collected", "good"))
         return _send(slip, subject, text, html)
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
