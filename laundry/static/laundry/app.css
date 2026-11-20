@@ -345,7 +345,8 @@ ul.errorlist li::before { content: "! "; font-weight: 800; }
 .summary .label { margin-right: var(--s-2); }
 
 /* Auth */
-.auth-alt { margin-top: var(--s-5); font-size: var(--fs-2); color: var(--text-2); }
+.auth-lede { margin: 0 0 var(--s-5); color: var(--text-2); }
+.btn-google svg { flex: none; width: 20px; height: 20px; }
 
 /* Digital laundry slip (review + detail): mirrors the printed slip */
 .slip-sheet {

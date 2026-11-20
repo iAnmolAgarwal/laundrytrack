@@ -176,6 +176,11 @@ LAUNDRY_DAILY_EMAIL_LIMIT = int(os.environ.get("LAUNDRY_DAILY_EMAIL_LIMIT", "20"
 os.environ.setdefault("LAUNDRY_VISION_MODEL", "claude-haiku-5-5")
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 
+# Sign-in is with Google only, limited to accounts on STUDENT_EMAIL_DOMAIN.
+# The OAuth client comes from Google Cloud Console (see the README).
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+
 # Email (Django 6.1 MAILERS). Three transports, picked from .env:
 #   1. HTTPS relay (Google Apps Script web app) - works on networks that block SMTP ports
 #   2. Gmail SMTP with an app password

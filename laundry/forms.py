@@ -1,10 +1,6 @@
 import re
 
 from django import forms
-from django.conf import settings
-from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
-from django.contrib.auth.models import User
-
 from django.utils import timezone
 
 from .models import LaundrySlip, Profile, student_email_for
@@ -174,60 +170,3 @@ class ProfileForm(forms.ModelForm):
             profile.user.save(update_fields=["first_name"])
             profile.save()
         return profile
-
-
-class SignupForm(UserCreationForm):
-    first_name = forms.CharField(label="Name", max_length=60, widget=forms.TextInput(attrs=INPUT))
-    enrollment_no = forms.CharField(label="Enrollment number", max_length=20, widget=forms.TextInput(attrs={**INPUT, "inputmode": "numeric"}))
-    email = forms.EmailField(label="Student email", required=False, widget=forms.EmailInput(attrs=INPUT))
-    hostel = forms.CharField(max_length=80, required=False, widget=forms.TextInput(attrs=INPUT))
-    room_no = forms.CharField(label="Room number", max_length=20, required=False, widget=forms.TextInput(attrs=INPUT))
-    laundry_days = laundry_days_field()
-
-    class Meta(UserCreationForm.Meta):
-        model = User
-        fields = ["first_name", "username", "enrollment_no", "email", "hostel", "room_no", "password1", "password2"]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        for name in ("username", "password1", "password2"):
-            self.fields[name].widget.attrs.update(INPUT)
-
-    def clean_enrollment_no(self):
-        roll = clean_roll(self.cleaned_data.get("enrollment_no", ""))
-        if not roll:
-            raise forms.ValidationError("Enter your enrollment number (6 to 15 letters or digits).")
-        return roll
-
-    def clean(self):
-        cleaned = super().clean()
-        roll = cleaned.get("enrollment_no", "")
-        email = (cleaned.get("email") or "").strip().lower() or student_email_for(roll)
-        if email and not email.endswith("@" + settings.STUDENT_EMAIL_DOMAIN):
-            self.add_error("email", f"Use your institute address ending in @{settings.STUDENT_EMAIL_DOMAIN}.")
-        cleaned["email"] = email
-        return cleaned
-
-    def save(self, commit=True):
-        user = super().save(commit=False)
-        user.email = self.cleaned_data["email"]
-        user.first_name = self.cleaned_data["first_name"]
-        if commit:
-            user.save()
-            Profile.objects.update_or_create(
-                user=user,
-                defaults={
-                    "hostel": self.cleaned_data["hostel"],
-                    "room_no": self.cleaned_data["room_no"],
-                    "enrollment_no": self.cleaned_data["enrollment_no"],
-                    "laundry_days": ",".join(sorted(self.cleaned_data.get("laundry_days") or [str(d) for d in default_weekdays()])),
-                },
-            )
-        return user
-
-
-class LoginForm(AuthenticationForm):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        for field in self.fields.values():
-            field.widget.attrs.update(INPUT)

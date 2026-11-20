@@ -28,7 +28,7 @@ LaundryTrack turns the paper laundry slip that JIIT hostel students hand in with
 
 Open **[laundrytrackerjiit.vercel.app](https://laundrytrackerjiit.vercel.app)** on your phone, then:
 
-1. sign up with your name and roll number (the email field is optional; it defaults to `<roll number>@mail.jiit.ac.in`)
+1. tap **Continue with Google** and pick your JIIT account (the one ending in `@mail.jiit.ac.in`); there is no form to fill in and no password to set
 2. tap **Upload**, photograph your filled-in laundry slip and tap **Read slip**
 3. check the on-screen slip against the paper one, fix anything that was misread, pick the day to be reminded and tap **Confirm**
 4. open your institute mailbox: the confirmation email has the item list, a photo of your slip and a calendar file for pickup day
@@ -74,7 +74,7 @@ Only what is written on the slip goes into the form. Nothing is copied in from y
 
 ### 3. Confirm, and choose when to be reminded
 
-Under the slip you pick the day for the reminder email. The earliest date allowed is your next laundry day after the date on the slip, because that is when the clothes are ready, and a reminder is never set in the past: for an older slip the earliest date is today. Any later day is fine too, since clothes can be collected on any day after that. The counter hours, 4:00 PM to 6:30 PM, are the same for everyone. Your laundry days are your own: they are set at sign-up and can be changed in **Settings** (Tuesday and Friday by default).
+Under the slip you pick the day for the reminder email. The earliest date allowed is your next laundry day after the date on the slip, because that is when the clothes are ready, and a reminder is never set in the past: for an older slip the earliest date is today. Any later day is fine too, since clothes can be collected on any day after that. The counter hours, 4:00 PM to 6:30 PM, are the same for everyone. Your laundry days are your own: they start as Tuesday and Friday and can be changed in **Settings**.
 
 The page also shows where the email will go: the roll number on the slip at `@mail.jiit.ac.in`. A roll number has to be 6 to 15 letters or digits, and at least one item needs a quantity, or the slip cannot be saved.
 
@@ -144,7 +144,7 @@ flowchart LR
 
 | Piece | What it does |
 |---|---|
-| Django views and templates ([`laundry/views.py`](laundry/views.py), [`laundry/templates/`](laundry/templates)) | Sign-up and login, upload, the check page, the slip page, collection, settings and the slips list. Server-rendered pages with a little JavaScript for the photo preview, zoom and the collection counters. |
+| Django views and templates ([`laundry/views.py`](laundry/views.py), [`laundry/templates/`](laundry/templates)) | Google sign-in, upload, the check page, the slip page, collection, settings and the slips list. Server-rendered pages with a little JavaScript for the photo preview, zoom and the collection counters. |
 | Slip reader ([`laundry/services/extract.py`](laundry/services/extract.py)) | Resizes the photo, sends it to Claude Haiku 5.5 with a prompt that describes the JIIT slip and a JSON schema for the answer, then cleans the result (dates to ISO, quantities to integers, duplicate rows merged). It never raises: if reading fails, the check page opens empty for you to fill in by hand. Without an API key it falls back to a locally installed, logged-in Claude Code CLI. |
 | Slip layout ([`laundry/forms.py`](laundry/forms.py)) | The printed rows of the paper slip, in order, used to lay the on-screen copy out like the paper one. |
 | Laundry days ([`laundry/services/schedule.py`](laundry/services/schedule.py)) | Works out the earliest reminder date from the slip date and the student's own laundry days. |
@@ -188,10 +188,11 @@ On macOS, `./run.sh` runs the migrations and the server in one step and also pri
 
 1. Import the repository into Vercel. [`vercel.json`](vercel.json) sets the framework to Django, and Vercel serves the project through `laundrytrack/wsgi.py`.
 2. Create a Postgres database (for example Neon from the Vercel Marketplace) and set its connection string as `DATABASE_URL`.
-3. Set the environment variables from [`.env.example`](.env.example): `ANTHROPIC_API_KEY`, `DJANGO_SECRET_KEY`, `CRON_SECRET`, and either `MAIL_WEBHOOK_URL` and `MAIL_WEBHOOK_TOKEN` or `EMAIL_HOST_USER` and `EMAIL_HOST_PASSWORD`. If you use a custom domain, add it to `ALLOWED_HOSTS`.
+3. Set the environment variables from [`.env.example`](.env.example): `ANTHROPIC_API_KEY`, `DJANGO_SECRET_KEY`, `CRON_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and either `MAIL_WEBHOOK_URL` and `MAIL_WEBHOOK_TOKEN` or `EMAIL_HOST_USER` and `EMAIL_HOST_PASSWORD`. If you use a custom domain, add it to `ALLOWED_HOSTS`.
 4. Create the tables by running `python manage.py migrate` from your machine with `DATABASE_URL` pointing at the production database.
 5. The cron entry in [`vercel.json`](vercel.json) calls `/cron/send-reminders/` once a day; Vercel sends `CRON_SECRET` with it, and the endpoint refuses any call without it.
-6. For the HTTPS mail relay, follow the steps at the top of [`mail_relay.example.gs`](mail_relay.example.gs): paste it into a new Apps Script project, set the token, deploy it as a web app, and put the web app URL and the token in `MAIL_WEBHOOK_URL` and `MAIL_WEBHOOK_TOKEN`.
+6. For sign-in, create an OAuth 2.0 client of type *Web application* in [Google Cloud Console](https://console.cloud.google.com/apis/credentials), add `https://<your site>/accounts/google/callback/` (and `http://127.0.0.1:8000/accounts/google/callback/` for local runs) as authorised redirect URIs, and put its client ID and secret in `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Only verified accounts on `STUDENT_EMAIL_DOMAIN` (set in [`laundrytrack/settings.py`](laundrytrack/settings.py)) are let in.
+7. For the HTTPS mail relay, follow the steps at the top of [`mail_relay.example.gs`](mail_relay.example.gs): paste it into a new Apps Script project, set the token, deploy it as a web app, and put the web app URL and the token in `MAIL_WEBHOOK_URL` and `MAIL_WEBHOOK_TOKEN`.
 
 ## Tests
 
@@ -199,7 +200,7 @@ On macOS, `./run.sh` runs the migrations and the server in one step and also pri
 python manage.py test laundry
 ```
 
-The 19 tests cover the laundry-day arithmetic (Tuesday to Friday, Friday to the next Tuesday, per-student days, counter hours), the full upload, confirm and collect cycle with the slip reader stubbed out (including who the email goes to and that the calendar file is attached), a blank slip staying blank, the checks on roll number, items and reminder date (never before the next laundry day, never in the past, and following a change of laundry days), a new upload replacing an earlier unconfirmed one (only one unconfirmed upload is kept per student), the daily cap on slip reads, one student not seeing another's slip, the institute-email rule at sign-up, and the cron endpoint's secret and its choice of which reminders are due.
+The 25 tests cover the laundry-day arithmetic (Tuesday to Friday, Friday to the next Tuesday, per-student days, counter hours), the full upload, confirm and collect cycle with the slip reader stubbed out (including who the email goes to and that the calendar file is attached), a blank slip staying blank, the checks on roll number, items and reminder date (never before the next laundry day, never in the past, and following a change of laundry days), a new upload replacing an earlier unconfirmed one (only one unconfirmed upload is kept per student), the daily cap on slip reads, one student not seeing another's slip, Google sign-in (the account made on first sign-in, with the roll number or staff name read from the mailbox; an earlier account kept; other domains, unverified and personal accounts turned away; forged, stale and replayed replies refused; no redirect off the site), and the cron endpoint's secret and its choice of which reminders are due.
 
 ## Credits
 

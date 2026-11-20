@@ -2,6 +2,7 @@ import base64
 import binascii
 import hmac
 import os
+import secrets
 import tempfile
 from datetime import date
 
@@ -11,15 +12,17 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_GET, require_POST
 
-from .forms import ProfileForm, SignupForm, SlipForm, UploadForm, build_slip_rows, clean_roll
+from .forms import ProfileForm, SlipForm, UploadForm, build_slip_rows, clean_roll
 from .models import DailyUsage, LaundryItem, LaundrySlip, Profile, student_email_for
-from .services import mailer
+from .services import google, mailer
 from .services.extract import extract_slip
 from .services.reminders import send_due_reminders
-from .services.schedule import next_pickup_date
+from .services.schedule import next_pickup_date, weekdays_label
 
 Status = LaundrySlip.Status
 MAX_PHOTO_BYTES = 3 * 1024 * 1024
@@ -95,16 +98,70 @@ def _is_blank(data):
     return not (data.get("student_name") or data.get("slip_no") or data.get("enrollment_no") or data.get("items"))
 
 
-def signup(request):
+def _safe_next(request, value):
+    """A local path to return to after signing in, or "" when the value is not one."""
+    ok = value and url_has_allowed_host_and_scheme(value, allowed_hosts={request.get_host()}, require_https=request.is_secure())
+    return value if ok else ""
+
+
+def _google_redirect_uri(request):
+    return request.build_absolute_uri(reverse("google_callback"))
+
+
+@require_GET
+def login_page(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
-    form = SignupForm(request.POST or None)
-    if request.method == "POST" and form.is_valid():
-        user = form.save()
-        login(request, user)
-        messages.success(request, f"Welcome, {user.first_name or user.username}.")
+    context = {
+        "next": _safe_next(request, request.GET.get("next", "")),
+        "google_ready": google.is_configured(),
+        "email_domain": settings.STUDENT_EMAIL_DOMAIN,
+    }
+    return render(request, "registration/login.html", context)
+
+
+@require_GET
+def google_login(request):
+    """Send the browser to Google to pick an institute account."""
+    if request.user.is_authenticated:
         return redirect("dashboard")
-    return render(request, "registration/signup.html", {"form": form})
+    if not google.is_configured():
+        return redirect("login")
+    state, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(24)
+    request.session["google_oauth"] = {
+        "state": state,
+        "nonce": nonce,
+        "next": _safe_next(request, request.GET.get("next", "")),
+    }
+    return redirect(google.auth_url(_google_redirect_uri(request), state, nonce))
+
+
+@require_GET
+def google_callback(request):
+    """Google sends the browser back here with a one-time code."""
+    saved = request.session.pop("google_oauth", None) or {}
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+    code = request.GET.get("code", "")
+    state = request.GET.get("state", "")
+    try:
+        if request.GET.get("error") == "access_denied":
+            raise google.GoogleAuthError("Sign-in was cancelled.")
+        if not code or not saved or not hmac.compare_digest(state, saved["state"]):
+            raise google.GoogleAuthError("Google sign-in failed. Try again.")
+        claims = google.exchange_code(code, _google_redirect_uri(request), saved["nonce"])
+    except google.GoogleAuthError as error:
+        messages.error(request, str(error))
+        return redirect("login")
+    user, created = google.user_for_claims(claims)
+    if not user.is_active:
+        messages.error(request, "This account is disabled.")
+        return redirect("login")
+    login(request, user)
+    if created:
+        days = weekdays_label(_profile(user).laundry_days)
+        messages.success(request, f"Welcome, {user.first_name or user.username}. Your laundry days are {days}; change them in Settings.")
+    return redirect(saved.get("next") or "dashboard")
 
 
 @login_required

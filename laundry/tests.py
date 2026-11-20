@@ -1,7 +1,10 @@
 import base64
 import io
+import json
+import time
 from datetime import date, timedelta
 from unittest import mock
+from urllib.parse import parse_qs, urlparse
 
 from django.contrib.auth.models import User
 from django.core import mail
@@ -11,7 +14,8 @@ from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 
-from .models import DailyUsage, LaundrySlip
+from .models import DailyUsage, LaundrySlip, Profile
+from .services import google
 from .services.schedule import counter_hours_label, next_pickup_date, weekdays_label
 
 LOCMEM = {"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}}
@@ -74,11 +78,11 @@ class ScheduleTests(TestCase):
 @override_settings(MAILERS=LOCMEM)
 class FlowTests(TestCase):
     def signup(self, username="tester", roll="2401031111", days=("1", "4")):
-        return self.client.post(reverse("signup"), {
-            "first_name": "Test", "username": username, "enrollment_no": roll, "email": "",
-            "hostel": "H4", "room_no": "B-204", "laundry_days": list(days),
-            "password1": "laundry-pass-91", "password2": "laundry-pass-91",
-        })
+        """Make an account the way a first Google sign-in does, and sign it in."""
+        user = User.objects.create(username=username, first_name="Test", email=f"{roll}@mail.jiit.ac.in")
+        Profile.objects.create(user=user, enrollment_no=roll, hostel="H4", room_no="B-204", laundry_days=",".join(days))
+        self.client.force_login(user)
+        return user
 
     def upload(self, data=None):
         with mock.patch("laundry.views.extract_slip", return_value=data or extraction()):
@@ -98,12 +102,8 @@ class FlowTests(TestCase):
     def test_dashboard_requires_login(self):
         self.assertEqual(self.client.get(reverse("dashboard")).status_code, 302)
 
-    def test_login_and_signup_pages_render(self):
-        self.assertEqual(self.client.get(reverse("login")).status_code, 200)
-        self.assertEqual(self.client.get(reverse("signup")).status_code, 200)
-
     def test_full_cycle_upload_confirm_collect(self):
-        self.assertRedirects(self.signup(), reverse("dashboard"))
+        self.signup()
         self.assertEqual(self.client.get(reverse("dashboard")).status_code, 200)
         self.assertEqual(self.client.get(reverse("upload")).status_code, 200)
 
@@ -214,7 +214,8 @@ class FlowTests(TestCase):
         self.client.post(reverse("settings"), {
             "first_name": "Test", "enrollment_no": "2401031111", "hostel": "", "room_no": "", "laundry_days": ["6"],
         })
-        earliest = next_pickup_date(slip.drop_date, [6])
+        # The reminder moves to the new laundry day unless it was already later than that.
+        earliest = max(slip.pickup_date, next_pickup_date(slip.drop_date, [6]))
         page = self.client.get(reverse("review", args=[slip.pk]))
         self.assertContains(page, f'value="{earliest.isoformat()}"')
 
@@ -250,17 +251,6 @@ class FlowTests(TestCase):
         self.assertEqual(self.client.get(reverse("review", args=[slip.pk])).status_code, 404)
         self.assertEqual(self.client.get(reverse("slip_detail", args=[slip.pk])).status_code, 404)
 
-    def test_signup_derives_institute_email_and_rejects_other_domains(self):
-        self.signup()
-        self.assertEqual(User.objects.get(username="tester").email, "2401031111@mail.jiit.ac.in")
-        self.client.post(reverse("logout"))
-        response = self.client.post(reverse("signup"), {
-            "first_name": "X", "username": "outsider", "enrollment_no": "2401033333", "email": "x@gmail.com",
-            "laundry_days": ["1", "4"], "password1": "laundry-pass-93", "password2": "laundry-pass-93",
-        })
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(User.objects.filter(username="outsider").exists())
-
     @override_settings(CRON_SECRET="s3cret")
     def test_scheduled_reminders_need_the_secret_and_send_only_what_is_due(self):
         self.signup()
@@ -278,3 +268,101 @@ class FlowTests(TestCase):
         self.assertEqual(self.client.get(url, headers=ok).json()["sent"], 1)
         self.assertEqual(mail.outbox[0].to, ["2401039999@mail.jiit.ac.in"])
         self.assertEqual(self.client.get(url, headers=ok).json()["sent"], 0)   # never sent twice
+
+
+def id_token(**overrides):
+    claims = {
+        "iss": "https://accounts.google.com", "aud": "client-id", "exp": time.time() + 600, "nonce": "",
+        "email": "2401031111@mail.jiit.ac.in", "email_verified": True, "hd": "mail.jiit.ac.in", "name": "Asha Verma",
+    }
+    claims.update(overrides)
+    body = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"header.{body}.signature"
+
+
+@override_settings(GOOGLE_CLIENT_ID="client-id", GOOGLE_CLIENT_SECRET="client-secret")
+class GoogleSignInTests(TestCase):
+    def start(self, **params):
+        """Begin sign-in; returns the query Google would receive."""
+        response = self.client.get(reverse("google_login"), params)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith(google.AUTH_ENDPOINT))
+        return parse_qs(urlparse(response["Location"]).query)
+
+    def finish(self, sent, **claims):
+        """Come back from Google with a code, with Google's token reply stubbed."""
+        reply = io.BytesIO(json.dumps({"id_token": id_token(nonce=sent["nonce"][0], **claims)}).encode())
+        with mock.patch("laundry.services.google.urllib.request.urlopen", return_value=reply) as urlopen:
+            response = self.client.get(reverse("google_callback"), {"code": "one-time", "state": sent["state"][0]})
+        self.token_request = urlopen.call_args[0][0] if urlopen.called else None
+        return response
+
+    def test_login_page_offers_only_google(self):
+        page = self.client.get(reverse("login"))
+        self.assertContains(page, "Continue with Google")
+        self.assertNotContains(page, "<input")
+
+    def test_first_sign_in_creates_the_account_from_the_institute_email(self):
+        sent = self.start()
+        self.assertEqual(sent["hd"], ["mail.jiit.ac.in"])
+        self.assertEqual(sent["redirect_uri"], ["http://testserver/accounts/google/callback/"])
+        self.assertRedirects(self.finish(sent), reverse("dashboard"))
+        self.assertIn(b"client_secret=client-secret", self.token_request.data)
+
+        user = User.objects.get()
+        self.assertEqual((user.username, user.email, user.first_name), ("2401031111@mail.jiit.ac.in",) * 2 + ("Asha Verma",))
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(user.profile.enrollment_no, "2401031111")   # a student mailbox is the roll number
+        self.assertEqual(self.client.get(reverse("dashboard")).status_code, 200)
+
+        self.client.post(reverse("logout"))
+        self.assertRedirects(self.finish(self.start()), reverse("dashboard"))
+        self.assertEqual(User.objects.count(), 1)                     # signing in again reuses the account
+
+    def test_staff_name_comes_from_the_mailbox_when_google_gives_none(self):
+        self.finish(self.start(), email="Asha.Verma2@mail.jiit.ac.in", name="")
+        user = User.objects.get()
+        self.assertEqual(user.first_name, "Asha Verma")
+        self.assertEqual(user.profile.enrollment_no, "")
+
+    def test_an_account_made_before_google_sign_in_keeps_its_slips(self):
+        old = User.objects.create_user("tester", email="2401031111@mail.jiit.ac.in", password="laundry-pass-91")
+        self.finish(self.start())
+        self.assertEqual(User.objects.get(), old)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), old.pk)
+
+    def test_only_verified_institute_accounts_get_in(self):
+        for claims in (
+            {"email": "someone@gmail.com", "hd": None},
+            {"email": "someone@other.ac.in", "hd": "other.ac.in"},
+            {"email": "x@mail.jiit.ac.in.evil.com", "hd": "evil.com"},
+            {"email_verified": False},
+            {"hd": None},                       # a personal Google account using an institute-looking address
+        ):
+            response = self.finish(self.start(), **claims)
+            self.assertRedirects(response, reverse("login"))
+            self.assertContains(self.client.get(reverse("login")), "@mail.jiit.ac.in")
+        self.assertFalse(User.objects.exists())
+
+    def test_a_forged_or_stale_reply_is_refused(self):
+        sent = self.start()
+        for claims in ({"aud": "another-app"}, {"exp": time.time() - 5}, {"iss": "https://evil.example"}, {"nonce": "x"}):
+            reply = io.BytesIO(json.dumps({"id_token": id_token(**{"nonce": sent["nonce"][0], **claims})}).encode())
+            with mock.patch("laundry.services.google.urllib.request.urlopen", return_value=reply):
+                self.client.get(reverse("google_callback"), {"code": "c", "state": sent["state"][0]})
+            sent = self.start()
+        self.assertRedirects(self.finish(sent | {"state": ["wrong"]}), reverse("login"))   # state must match
+        self.assertRedirects(self.finish(sent), reverse("login"))                           # and works only once
+        self.assertIsNone(self.token_request)
+        self.assertRedirects(self.client.get(reverse("google_callback"), {"error": "access_denied"}), reverse("login"))
+        self.assertFalse(User.objects.exists())
+
+    def test_returns_to_the_page_that_asked_for_sign_in_but_never_off_site(self):
+        self.assertRedirects(self.finish(self.start(next="/settings/")), reverse("settings"))
+        self.client.post(reverse("logout"))
+        self.assertRedirects(self.finish(self.start(next="https://evil.example/")), reverse("dashboard"))
+
+    @override_settings(GOOGLE_CLIENT_ID="")
+    def test_without_credentials_the_button_is_replaced_by_a_note(self):
+        self.assertContains(self.client.get(reverse("login")), "not set up")
+        self.assertRedirects(self.client.get(reverse("google_login")), reverse("login"))
